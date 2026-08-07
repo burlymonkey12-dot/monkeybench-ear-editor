@@ -49,6 +49,11 @@
   #nUp { grid-column:2; } #nLeft { grid-column:1;grid-row:2; } #nDown { grid-column:2;grid-row:2; } #nRight { grid-column:3;grid-row:2; }
   label.slider { display:flex; align-items:center; gap:7px; font-size:12px; white-space:nowrap; }
   input[type=range] { width:110px; }
+
+  #precisionWrap { display:flex; align-items:center; gap:8px; }
+  #precisionPad { width:112px; height:112px; border-radius:50%; border:1px solid #555; background:radial-gradient(circle at center,#333 0 16%,#222 17% 48%,#171717 49%); position:relative; touch-action:none; flex:0 0 auto; }
+  #precisionKnob { width:30px; height:30px; border-radius:50%; background:#35b8ff; border:2px solid #fff; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); pointer-events:none; box-sizing:border-box; }
+  #precisionLabel { font-size:11px; color:#bbb; max-width:105px; line-height:1.25; }
   @media (max-width:760px) {
     #topbar { gap:6px; }
     #topbar button { min-height:36px; padding:6px 9px; font-size:13px; }
@@ -62,8 +67,8 @@
 </head>
 <body>
 <div id="topbar">
-  <div class="brand">🐵 MonkeyBench — Ear Shape Editor <span style="opacity:.55">v1</span></div>
-  <span class="badge">🔒 Transform locked</span>
+  <div class="brand">🐵 MonkeyBench — Ear Shape Editor <span style="opacity:.55">v2</span></div>
+  <span class="badge">🔒 Placement locked • top root editable</span>
   <button id="fitBtn">3-foot view</button>
   <button id="earBtn">Zoom ear</button>
   <button id="refBtn" class="on">Reference</button>
@@ -82,7 +87,7 @@
   <path id="earPath" class="path"/>
   <g id="controlLayer"></g>
 </svg>
-<div id="hud">Pinch to zoom • drag blank space to pan • tap a blue point or yellow handle</div>
+<div id="hud">Pinch to zoom • drag blank space to pan • tap a point/handle, then drag it or use the precision puck</div>
 </div>
 
 <div id="bottom">
@@ -97,6 +102,7 @@
     <option value="1">1 px nudge</option>
     <option value="0.25">0.25 px nudge</option>
   </select>
+  <div id="precisionWrap"><div id="precisionPad" aria-label="Precision movement puck"><div id="precisionKnob"></div></div><div id="precisionLabel">Precision puck<br>Drag anywhere in 360°<br><select id="gear"><option value="0.02">Microscopic</option><option value="0.08" selected>Fine</option><option value="0.25">Coarse</option></select></div></div>
   <label class="slider">Reference <input id="refOpacity" type="range" min="0" max="1" step=".05" value="1"></label>
   <label class="slider">Curve <input id="curveOpacity" type="range" min=".15" max="1" step=".05" value="1"></label>
   <button id="copyBtn">Copy coordinates</button>
@@ -107,7 +113,7 @@
 'use strict';
 
 const INITIAL = {"anchors": [[231.555, 150.0], [275.493, 165.0], [307.832, 205.0], [320.479, 250.0], [326.0, 276.0], [290.224, 305.0], [287.978, 320.0]], "segments": [{"c1": [230.254, 155.0], "c2": [271.875, 160.0]}, {"c1": [285.141, 178.333], "c2": [296.298, 191.667]}, {"c1": [320.807, 220.0], "c2": [317.757, 235.0]}, {"c1": [322.053, 258.667], "c2": [330.992, 267.333]}, {"c1": [320.432, 285.667], "c2": [306.512, 295.333]}, {"c1": [281.799, 310.0], "c2": [287.362, 315.0]}]};
-const LOCKED_ANCHORS = new Set([0,4,6]); // top root, outermost projection, lower root
+const LOCKED_ANCHORS = new Set([4,6]); // preserve outermost projection + lower root; top root is editable in v2
 let model = structuredClone(INITIAL);
 let selected = null; // {kind:'a'|'c1'|'c2', i:index}
 let history = [];
@@ -171,7 +177,14 @@ function zoomEar() { setView({x:205,y:125,w:145,h:225}); }
 function updateHandleSizes() {
   const rect=svg.getBoundingClientRect();
   const unitPerPx=view.w/Math.max(rect.width,1);
-  const rAnchor=7*unitPerPx, rHandle=6*unitPerPx, rHit=18*unitPerPx;
+  const zoom=Math.max(1, defaultView.w/view.w);
+  // Touch controls grow on-screen as we zoom, while geometry itself stays exact.
+  const anchorPx=Math.min(16, 8 + Math.log2(zoom)*1.8);
+  const handlePx=Math.min(14, 7 + Math.log2(zoom)*1.5);
+  const hitPx=Math.min(34, 24 + Math.log2(zoom)*2.2);
+  const rAnchor=anchorPx*unitPerPx, rHandle=handlePx*unitPerPx, rHit=hitPx*unitPerPx;
+  path.style.strokeWidth=Math.min(4.5, 2.2 + Math.log2(zoom)*0.45);
+  controls.querySelectorAll('.guide').forEach(el=>el.style.strokeWidth=Math.min(3,1.2+Math.log2(zoom)*0.35));
   controls.querySelectorAll('.anchor').forEach(el=>el.setAttribute('r',rAnchor));
   controls.querySelectorAll('.handle').forEach(el=>el.setAttribute('r',rHandle));
   controls.querySelectorAll('.handle-hit').forEach(el=>el.setAttribute('r',rHit));
@@ -322,8 +335,7 @@ svg.addEventListener('pointerdown', e=>{
   svg.setPointerCapture?.(e.pointerId);
   pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if (pointers.size===1) {
-    const p=svgPointFromClient(e.clientX,e.clientY);
-    pinchStart={mode:'pan', p, view:{...view}};
+    pinchStart={mode:'pan', client:[e.clientX,e.clientY], view:{...view}};
   } else if (pointers.size===2) {
     const ps=[...pointers.values()];
     const dist=Math.hypot(ps[0].x-ps[1].x,ps[0].y-ps[1].y);
@@ -337,8 +349,10 @@ svg.addEventListener('pointermove', e=>{
   e.preventDefault();
   pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if (pointers.size===1 && pinchStart?.mode==='pan') {
-    const cur=svgPointFromClient(e.clientX,e.clientY);
-    setView({x:pinchStart.view.x+(pinchStart.p[0]-cur[0]), y:pinchStart.view.y+(pinchStart.p[1]-cur[1]), w:pinchStart.view.w,h:pinchStart.view.h});
+    // Compute from fixed screen-space start to avoid feedback jitter as viewBox changes.
+    const rect=svg.getBoundingClientRect();
+    const dx=e.clientX-pinchStart.client[0], dy=e.clientY-pinchStart.client[1];
+    setView({x:pinchStart.view.x-dx*pinchStart.view.w/Math.max(rect.width,1), y:pinchStart.view.y-dy*pinchStart.view.h/Math.max(rect.height,1), w:pinchStart.view.w,h:pinchStart.view.h});
   } else if (pointers.size===2) {
     const ps=[...pointers.values()];
     const dist=Math.hypot(ps[0].x-ps[1].x,ps[0].y-ps[1].y);
@@ -360,7 +374,7 @@ function endPointer(e) {
   if (pointers.size===0) pinchStart=null;
   else if (pointers.size===1) {
     const p=[...pointers.values()][0];
-    pinchStart={mode:'pan',p:svgPointFromClient(p.x,p.y),view:{...view}};
+    pinchStart={mode:'pan',client:[p.x,p.y],view:{...view}};
   }
 }
 svg.addEventListener('pointerup',endPointer);
@@ -418,6 +432,28 @@ document.getElementById('nUp').onclick=()=>nudge(0,-stepVal());
 document.getElementById('nDown').onclick=()=>nudge(0,stepVal());
 document.getElementById('nLeft').onclick=()=>nudge(-stepVal(),0);
 document.getElementById('nRight').onclick=()=>nudge(stepVal(),0);
+
+// Indirect precision puck: large finger motion -> tiny geometry motion, without covering the artwork.
+const precisionPad=document.getElementById('precisionPad');
+const precisionKnob=document.getElementById('precisionKnob');
+let puck=null;
+precisionPad.addEventListener('pointerdown',e=>{
+  if(!selected || (selected.kind==='a' && LOCKED_ANCHORS.has(selected.i))) return;
+  e.preventDefault(); precisionPad.setPointerCapture?.(e.pointerId); pushHistory();
+  puck={id:e.pointerId,last:[e.clientX,e.clientY]};
+});
+precisionPad.addEventListener('pointermove',e=>{
+  if(!puck || puck.id!==e.pointerId) return; e.preventDefault();
+  const dx=e.clientX-puck.last[0], dy=e.clientY-puck.last[1]; puck.last=[e.clientX,e.clientY];
+  const gear=Number(document.getElementById('gear').value);
+  const p=pointRef(selected); moveSelectionTo(selected,[p[0]+dx*gear,p[1]+dy*gear]);
+  const r=precisionPad.getBoundingClientRect(), cx=r.left+r.width/2, cy=r.top+r.height/2;
+  const vx=e.clientX-cx, vy=e.clientY-cy, mag=Math.hypot(vx,vy), lim=38, k=mag>lim?lim/mag:1;
+  precisionKnob.style.transform=`translate(calc(-50% + ${vx*k}px), calc(-50% + ${vy*k}px))`;
+  render();
+});
+function endPuck(e){ if(!puck || (e && puck.id!==e.pointerId)) return; puck=null; precisionKnob.style.transform='translate(-50%,-50%)'; autosave(); render(); }
+precisionPad.addEventListener('pointerup',endPuck); precisionPad.addEventListener('pointercancel',endPuck);
 
 document.getElementById('copyBtn').onclick=async()=>{
   const txt=JSON.stringify({
