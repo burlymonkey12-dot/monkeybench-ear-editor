@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#111111">
-<title>Bench Monkey — Shape Editor v6.3</title>
+<title>Bench Monkey — Shape Editor v6.4</title>
 <style>
   :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   * { box-sizing: border-box; }
@@ -146,7 +146,7 @@ body.bigMatDesktop.toolsCollapsed #collapseToolsBtn{
 }
 
 
-/* === v6.3 WORKBENCH LAYOUT: FINAL OVERRIDES === */
+/* === v6.4 WORKBENCH LAYOUT: FINAL OVERRIDES === */
 @media (min-width: 821px){
   html, body { width:100%; height:100%; margin:0; overflow:hidden; }
   body{
@@ -233,12 +233,23 @@ body.bigMatDesktop.toolsCollapsed #collapseToolsBtn{
   #collapseToolsBtn{display:none;}
 }
 
+
+/* === v6.4 READABILITY === */
+@media (min-width:821px){
+  #topbar{color:#f4f4f4 !important;font-size:15px !important;}
+  #topbar button{color:#f7f7f7 !important;background:#303030 !important;border-color:#666 !important;
+    font-size:14px !important;font-weight:600 !important;}
+  #topbar button:disabled{color:#9d9d9d !important;background:#242424 !important;border-color:#444 !important;opacity:.72 !important;}
+  #topbar .muted,#topbar small,#topbar label{color:#e0e0e0 !important;}
+  #status,.status{color:#f2f2f2 !important;font-size:14px !important;}
+}
+
 </style>
 </head>
 <body>
 <div id="topbar" class="toolbar">
   <button id="collapseToolsBtn" title="Collapse/expand controls">☰ Mat</button>
-  <div class="brand">🐵 Bench Monkey — Shape Editor <span style="opacity:.55">v6.3</span></div>
+  <div class="brand">🐵 Bench Monkey — Shape Editor <span style="opacity:.55">v6.4</span></div>
   <span class="badge">📌 Placement locked • pins individually lockable</span>
   <button id="fitBtn">3-foot view</button>
   <button id="earBtn">Zoom ear</button>
@@ -258,7 +269,8 @@ body.bigMatDesktop.toolsCollapsed #collapseToolsBtn{
   <button id="symmetricNodeBtn" disabled>↔ Symmetric</button>
   <button id="mirrorBtn" disabled>🪞 Mirror Selection</button>
   <button id="lockBtn" disabled>🔒 Lock Pin</button>
-  <button id="deleteBtn" disabled>🗑 Delete Pin</button>
+  <button id="deleteBtn" disabled>🗑 Delete Pin</button><button id="deleteAnchorBtn" disabled>✂ Delete Structural Anchor</button>
+  <button id="cleanConnectionsBtn">🧹 Clean Landmark Lines</button>
   <button id="loadBtn">📥 Load JSON</button>
   <input id="loadFile" type="file" accept=".json,application/json" style="display:none">
   <button id="saveBtn" class="primary">Save SVG + JSON</button>
@@ -969,6 +981,116 @@ updateButtons();
 })();
 
 setTimeout(v63EnsureEngineeringVisibility,0);
+
+/* === v6.4 SELECTION + CONNECTION CLEANUP === */
+let bmSelectedAnchors=[];
+
+function bmRefreshSelectionUI(){
+  const ai=v63StructuralAnchorFromSelection();
+  const db=document.getElementById('deleteBtn');
+  const da=document.getElementById('deleteAnchorBtn');
+  if(da) da.disabled=!(Number.isInteger(ai)&&model.anchors&&model.anchors.length>2);
+  // Free/landmark pin deletion should wake immediately when a free pin is selected.
+  if(db && selected){
+    const freeKinds=['p','pin','free','landmark'];
+    if(freeKinds.includes(selected.kind)) db.disabled=false;
+  }
+  updateNodeToolState();
+}
+
+function bmDeleteStructuralAnchor(){
+  const i=v63StructuralAnchorFromSelection();
+  if(!Number.isInteger(i)||!model.anchors||model.anchors.length<=2) return;
+  pushHistory();
+  model.anchors.splice(i,1);
+  // Remove one adjoining segment and reconnect remaining neighbors.
+  if(model.segments&&model.segments.length){
+    if(i===0) model.segments.splice(0,1);
+    else if(i>=model.anchors.length) model.segments.splice(model.segments.length-1,1);
+    else {
+      model.segments.splice(Math.max(0,i-1),1);
+      // Preserve continuity with a neutral quadratic handle at the midpoint.
+      const a=model.anchors[i-1], b=model.anchors[i];
+      if(a&&b&&model.segments[i-1])
+        model.segments[i-1].q=[(a.x+b.x)/2,(a.y+b.y)/2];
+    }
+  }
+  selected=null; bmSelectedAnchors=[];
+  autosave();render();bmRefreshSelectionUI();
+}
+document.getElementById('deleteAnchorBtn').onclick=bmDeleteStructuralAnchor;
+
+/* Clean stale/duplicate green landmark connections:
+   keep only valid endpoints, remove self-links and exact duplicate undirected links. */
+function bmCleanConnections(){
+  pushHistory();
+  const candidates=['connections','landmarkConnections','links'];
+  for(const key of candidates){
+    if(!Array.isArray(model[key])) continue;
+    const seen=new Set();
+    model[key]=model[key].filter(c=>{
+      const a=c.a??c.from??c[0], b=c.b??c.to??c[1];
+      if(a==null||b==null||a===b) return false;
+      const k=[String(a),String(b)].sort().join('|');
+      if(seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+  }
+  autosave();render();bmRefreshSelectionUI();
+}
+document.getElementById('cleanConnectionsBtn').onclick=bmCleanConnections;
+
+/* Shift-select adjacent structural anchors as a connected chain.
+   The chain is stored as anchor indices; intervening segment indices are derived. */
+function bmToggleAnchorChain(i,shift){
+  if(!shift){bmSelectedAnchors=[i];return;}
+  if(!bmSelectedAnchors.includes(i)) bmSelectedAnchors.push(i);
+  bmSelectedAnchors.sort((a,b)=>a-b);
+}
+function bmConnectedSelection(){
+  if(bmSelectedAnchors.length<2) return null;
+  const lo=Math.min(...bmSelectedAnchors), hi=Math.max(...bmSelectedAnchors);
+  for(let i=lo;i<=hi;i++) if(!bmSelectedAnchors.includes(i)) return null;
+  return {anchors:[...bmSelectedAnchors],segments:Array.from({length:hi-lo},(_,k)=>lo+k)};
+}
+
+/* Capture clicks after the editor's own selection handler, then refresh controls.
+   This fixes stale Delete/Smooth button state without changing geometry. */
+document.addEventListener('click',e=>{
+  setTimeout(()=>{
+    const ai=v63StructuralAnchorFromSelection();
+    if(Number.isInteger(ai)) bmToggleAnchorChain(ai,!!e.shiftKey);
+    bmRefreshSelectionUI();
+  },0);
+},true);
+
+/* Mirror connected structural selection: copy anchors AND intervening curve segments.
+   Uses the selection's horizontal midpoint as default vertical mirror axis. */
+function bmMirrorConnectedChain(){
+  const chain=bmConnectedSelection();
+  if(!chain) return false;
+  const pts=chain.anchors.map(i=>model.anchors[i]);
+  const axis=(Math.min(...pts.map(p=>p.x))+Math.max(...pts.map(p=>p.x)))/2;
+  const newAnch=pts.map(p=>({...p,x:2*axis-p.x})).reverse();
+  const lo=Math.min(...chain.anchors), hi=Math.max(...chain.anchors);
+  const segs=model.segments.slice(lo,hi).map(s=>{
+    const n=JSON.parse(JSON.stringify(s));
+    if(n.q) n.q=[2*axis-n.q[0],n.q[1]];
+    return n;
+  }).reverse();
+  pushHistory();
+  model.anchors.push(...newAnch);
+  model.segments.push(...segs);
+  autosave();render();bmRefreshSelectionUI();
+  return true;
+}
+const bmOldMirror=document.getElementById('mirrorBtn').onclick;
+document.getElementById('mirrorBtn').onclick=(e)=>{
+  if(!bmMirrorConnectedChain() && bmOldMirror) bmOldMirror.call(e.currentTarget,e);
+};
+
+setTimeout(bmRefreshSelectionUI,0);
+
 </script>
 </body>
 </html>
