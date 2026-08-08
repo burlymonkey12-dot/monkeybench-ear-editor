@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#111111">
-<title>MonkeyBench — Ear Shape Editor v1</title>
+<title>MonkeyBench — Ear Shape Editor v3</title>
 <style>
   :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   * { box-sizing: border-box; }
@@ -67,8 +67,8 @@
 </head>
 <body>
 <div id="topbar">
-  <div class="brand">🐵 MonkeyBench — Ear Shape Editor <span style="opacity:.55">v2</span></div>
-  <span class="badge">🔒 Placement locked • top root editable</span>
+  <div class="brand">🐵 MonkeyBench — Ear Shape Editor <span style="opacity:.55">v3</span></div>
+  <span class="badge">📌 Placement locked • pins individually lockable</span>
   <button id="fitBtn">3-foot view</button>
   <button id="earBtn">Zoom ear</button>
   <button id="refBtn" class="on">Reference</button>
@@ -76,6 +76,7 @@
   <button id="undoBtn">↶ Undo</button>
   <button id="redoBtn">↷ Redo</button>
   <button id="resetBtn">Reset</button>
+  <button id="lockBtn" disabled>🔒 Lock Pin</button>
   <button id="saveBtn" class="primary">Save SVG + JSON</button>
 </div>
 
@@ -87,7 +88,7 @@
   <path id="earPath" class="path"/>
   <g id="controlLayer"></g>
 </svg>
-<div id="hud">Pinch to zoom • drag blank space to pan • tap a point/handle, then drag it or use the precision puck</div>
+<div id="hud">Pinch to zoom • drag blank space to pan • tap a pin/handle, then drag it or use the precision puck</div>
 </div>
 
 <div id="bottom">
@@ -113,7 +114,7 @@
 'use strict';
 
 const INITIAL = {"anchors": [[231.555, 150.0], [275.493, 165.0], [307.832, 205.0], [320.479, 250.0], [326.0, 276.0], [290.224, 305.0], [287.978, 320.0]], "segments": [{"c1": [230.254, 155.0], "c2": [271.875, 160.0]}, {"c1": [285.141, 178.333], "c2": [296.298, 191.667]}, {"c1": [320.807, 220.0], "c2": [317.757, 235.0]}, {"c1": [322.053, 258.667], "c2": [330.992, 267.333]}, {"c1": [320.432, 285.667], "c2": [306.512, 295.333]}, {"c1": [281.799, 310.0], "c2": [287.362, 315.0]}]};
-const LOCKED_ANCHORS = new Set([4,6]); // preserve outermost projection + lower root; top root is editable in v2
+let lockedAnchors = new Set([4,6]); // v3: user-controlled per-pin locks; starts with v2 lock state
 let model = structuredClone(INITIAL);
 let selected = null; // {kind:'a'|'c1'|'c2', i:index}
 let history = [];
@@ -179,11 +180,11 @@ function updateHandleSizes() {
   const unitPerPx=view.w/Math.max(rect.width,1);
   const zoom=Math.max(1, defaultView.w/view.w);
   // Touch controls grow on-screen as we zoom, while geometry itself stays exact.
-  const anchorPx=Math.min(16, 8 + Math.log2(zoom)*1.8);
-  const handlePx=Math.min(14, 7 + Math.log2(zoom)*1.5);
-  const hitPx=Math.min(34, 24 + Math.log2(zoom)*2.2);
+  const anchorPx=Math.min(18, 10 + Math.log2(zoom)*1.8);
+  const handlePx=Math.min(16, 9 + Math.log2(zoom)*1.5);
+  const hitPx=Math.min(40, 28 + Math.log2(zoom)*2.2);
   const rAnchor=anchorPx*unitPerPx, rHandle=handlePx*unitPerPx, rHit=hitPx*unitPerPx;
-  path.style.strokeWidth=Math.min(4.5, 2.2 + Math.log2(zoom)*0.45);
+  path.style.strokeWidth=Math.min(5, 2.8 + Math.log2(zoom)*0.45);
   controls.querySelectorAll('.guide').forEach(el=>el.style.strokeWidth=Math.min(3,1.2+Math.log2(zoom)*0.35));
   controls.querySelectorAll('.anchor').forEach(el=>el.setAttribute('r',rAnchor));
   controls.querySelectorAll('.handle').forEach(el=>el.setAttribute('r',rHandle));
@@ -241,7 +242,7 @@ function renderControls() {
   }
 
   model.anchors.forEach((a,i)=>{
-    let cls='anchor'+(LOCKED_ANCHORS.has(i)?' locked':'');
+    let cls='anchor'+(lockedAnchors.has(i)?' locked':'');
     if (selected && selected.kind==='a' && selected.i===i) cls+=' selected';
     addCircle(a[0],a[1],cls,{kind:'a',i});
   });
@@ -256,14 +257,32 @@ function render() {
 }
 
 function describeSelection() {
-  if (!selected) { selBox.textContent='Nothing selected.'; return; }
+  if (!selected) { selBox.textContent='Nothing selected.'; updateLockButton(); return; }
   const k=selected.kind, i=selected.i;
   let p;
   let label;
-  if (k==='a') { p=model.anchors[i]; label=`Anchor ${i+1}`; }
+  if (k==='a') { p=model.anchors[i]; label=`Pin ${i+1}`; }
   else { p=model.segments[i][k]; label=`${k==='c1'?'Outgoing':'Incoming'} handle • segment ${i+1}`; }
-  const lock=(k==='a' && LOCKED_ANCHORS.has(i))?' • 🔒 locked':'';
+  const lock=(k==='a' && lockedAnchors.has(i))?' • 🔒 locked':(k==='a'?' • 🔓 unlocked':'');
   selBox.textContent=`${label}${lock}  x ${p[0].toFixed(2)}  y ${p[1].toFixed(2)}`;
+  updateLockButton();
+}
+
+function updateLockButton() {
+  const btn=document.getElementById('lockBtn');
+  if (!btn) return;
+  const isPin=selected && selected.kind==='a';
+  btn.disabled=!isPin;
+  if (!isPin) { btn.textContent='🔒 Lock Pin'; return; }
+  btn.textContent=lockedAnchors.has(selected.i)?'🔓 Unlock Pin':'🔒 Lock Pin';
+}
+
+function toggleSelectedPinLock() {
+  if (!selected || selected.kind!=='a') return;
+  const i=selected.i;
+  if (lockedAnchors.has(i)) lockedAnchors.delete(i);
+  else lockedAnchors.add(i);
+  autosave(); render();
 }
 
 function pickTarget(e) {
@@ -278,7 +297,7 @@ function pointRef(s) {
 }
 
 function moveSelectionTo(s, p, base=null) {
-  if (s.kind==='a' && LOCKED_ANCHORS.has(s.i)) return;
+  if (s.kind==='a' && lockedAnchors.has(s.i)) return;
   if (s.kind==='a') {
     const a=model.anchors[s.i];
     const dx=p[0]-a[0], dy=p[1]-a[1];
@@ -297,7 +316,7 @@ function moveSelectionTo(s, p, base=null) {
 
 function nudge(dx,dy) {
   if (!selected) return;
-  if (selected.kind==='a' && LOCKED_ANCHORS.has(selected.i)) return;
+  if (selected.kind==='a' && lockedAnchors.has(selected.i)) return;
   pushHistory();
   const p=pointRef(selected);
   moveSelectionTo(selected,[p[0]+dx,p[1]+dy]);
@@ -390,15 +409,16 @@ svg.addEventListener('wheel', e=>{
 },{passive:false});
 
 function autosave() {
-  try { localStorage.setItem('monkeybench-ear-v1',JSON.stringify(model)); } catch(_e) {}
+  try { localStorage.setItem('monkeybench-ear-v3',JSON.stringify({model,locked_anchors:[...lockedAnchors]})); } catch(_e) {}
 }
 function restoreAutosave() {
   try {
-    const x=localStorage.getItem('monkeybench-ear-v1');
-    if (x) model=JSON.parse(x);
+    const x=localStorage.getItem('monkeybench-ear-v3');
+    if (x) { const saved=JSON.parse(x); model=saved.model||saved; if (Array.isArray(saved.locked_anchors)) lockedAnchors=new Set(saved.locked_anchors); }
   } catch(_e) {}
 }
 
+document.getElementById('lockBtn').onclick=toggleSelectedPinLock;
 document.getElementById('fitBtn').onclick=fitView;
 document.getElementById('earBtn').onclick=zoomEar;
 document.getElementById('refBtn').onclick=e=>{
@@ -423,8 +443,8 @@ document.getElementById('redoBtn').onclick=()=>{
   history.push(cloneModel()); model=future.pop(); autosave(); render(); updateButtons();
 };
 document.getElementById('resetBtn').onclick=()=>{
-  if(!confirm('Reset the ear curve to the v13 checkpoint?'))return;
-  pushHistory(); model=structuredClone(INITIAL); selected=null; autosave(); render();
+  if(!confirm('Reset the ear curve and pin locks to the v3 starting checkpoint?'))return;
+  pushHistory(); model=structuredClone(INITIAL); lockedAnchors=new Set([4,6]); selected=null; autosave(); render();
 };
 
 function stepVal() { return Number(document.getElementById('step').value); }
@@ -438,7 +458,7 @@ const precisionPad=document.getElementById('precisionPad');
 const precisionKnob=document.getElementById('precisionKnob');
 let puck=null;
 precisionPad.addEventListener('pointerdown',e=>{
-  if(!selected || (selected.kind==='a' && LOCKED_ANCHORS.has(selected.i))) return;
+  if(!selected || (selected.kind==='a' && lockedAnchors.has(selected.i))) return;
   e.preventDefault(); precisionPad.setPointerCapture?.(e.pointerId); pushHistory();
   puck={id:e.pointerId,last:[e.clientX,e.clientY]};
 });
@@ -459,7 +479,7 @@ document.getElementById('copyBtn').onclick=async()=>{
   const txt=JSON.stringify({
     authority:'Bunsen_TripleBezier_Attached_v7.png',
     transform_locked:true,
-    locked_anchors:[0,4,6],
+    locked_anchors:[...lockedAnchors].sort((a,b)=>a-b),
     ...model
   },null,2);
   try { await navigator.clipboard.writeText(txt); alert('Coordinates copied.'); }
@@ -477,7 +497,7 @@ document.getElementById('saveBtn').onclick=()=>{
   const meta={
     authority:'Bunsen_TripleBezier_Attached_v7.png',
     transform_locked:true,size_locked:true,placement_locked:true,
-    locked_anchors:[0,4,6],
+    locked_anchors:[...lockedAnchors].sort((a,b)=>a-b),
     saved_at:new Date().toISOString(),
     ...model
   };
