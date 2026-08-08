@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#111111">
-<title>Bench Monkey — Shape Editor v6</title>
+<title>Bench Monkey — Shape Editor v6.1</title>
 <style>
   :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   * { box-sizing: border-box; }
@@ -86,6 +86,9 @@
   <button id="hidePinsBtn">👁 Hide Pins</button>
   <button id="handlesBtn">〰 Hide Handles</button>
   <button id="connectModeBtn">🧵 Connect by Click</button>
+  <button id="cornerNodeBtn" disabled>◼ Corner</button>
+  <button id="smoothNodeBtn" disabled>〰 Smooth</button>
+  <button id="symmetricNodeBtn" disabled>↔ Symmetric</button>
   <button id="mirrorBtn" disabled>🪞 Mirror Selection</button>
   <button id="lockBtn" disabled>🔒 Lock Pin</button>
   <button id="deleteBtn" disabled>🗑 Delete Pin</button>
@@ -674,6 +677,44 @@ document.getElementById('loadFile').onchange=async e=>{
   }catch(err){ alert('Could not load this JSON: '+err.message); }
   e.target.value='';
 };
+
+
+function selectedStructuralAnchorIndex(){
+  return (selected&&selected.kind==='a')?selected.i:null;
+}
+function updateNodeToolState(){
+  const i=selectedStructuralAnchorIndex();
+  const ok=i!==null&&i>0&&i<model.anchors.length-1;
+  ['cornerNodeBtn','smoothNodeBtn','symmetricNodeBtn'].forEach(id=>{
+    const b=document.getElementById(id); if(b)b.disabled=!ok;
+  });
+}
+function setBezierNodeMode(mode){
+  const i=selectedStructuralAnchorIndex();
+  if(i===null){alert('Select a purple structural anchor first.');return;}
+  if(i<=0||i>=model.anchors.length-1){alert('Choose an interior purple anchor.');return;}
+  const a=model.anchors[i], left=model.segments[i-1], right=model.segments[i];
+  if(!left||!right||!left.q||!right.q){alert('This anchor needs curve handles on both sides.');return;}
+  pushHistory();
+  if(mode==='corner'){
+    a.nodeMode='corner'; autosave(); render(); updateNodeToolState(); return;
+  }
+  const lv={x:left.q[0]-a.x,y:left.q[1]-a.y};
+  const rv={x:right.q[0]-a.x,y:right.q[1]-a.y};
+  const ll=Math.hypot(lv.x,lv.y)||1, rl=Math.hypot(rv.x,rv.y)||1;
+  let ux=lv.x/ll-rv.x/rl, uy=lv.y/ll-rv.y/rl, ul=Math.hypot(ux,uy);
+  if(ul<1e-6){ux=lv.x/ll;uy=lv.y/ll;ul=1;}
+  ux/=ul;uy/=ul;
+  let leftLen=ll,rightLen=rl;
+  if(mode==='symmetric'){const avg=(ll+rl)/2;leftLen=avg;rightLen=avg;}
+  left.q=[a.x+ux*leftLen,a.y+uy*leftLen];
+  right.q=[a.x-ux*rightLen,a.y-uy*rightLen];
+  a.nodeMode=mode;
+  autosave();render();updateNodeToolState();
+}
+document.getElementById('cornerNodeBtn').onclick=()=>setBezierNodeMode('corner');
+document.getElementById('smoothNodeBtn').onclick=()=>setBezierNodeMode('smooth');
+document.getElementById('symmetricNodeBtn').onclick=()=>setBezierNodeMode('symmetric');
 
 window.addEventListener('resize',updateHandleSizes);
 document.addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&!['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();deleteSelectedPin();return;}if(e.key==='Escape'){addPinMode=false;connectClickMode=false;connectSequence=[];document.getElementById('addPinBtn').classList.remove('on');document.getElementById('connectModeBtn').classList.remove('on');document.getElementById('connectModeBtn').textContent='🧵 Connect by Click';}});
