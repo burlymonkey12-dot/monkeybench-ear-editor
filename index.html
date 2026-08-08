@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#111111">
-<title>Bench Monkey — Shape Editor v5</title>
+<title>Bench Monkey — Shape Editor v6</title>
 <style>
   :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   * { box-sizing: border-box; }
@@ -89,6 +89,8 @@
   <button id="mirrorBtn" disabled>🪞 Mirror Selection</button>
   <button id="lockBtn" disabled>🔒 Lock Pin</button>
   <button id="deleteBtn" disabled>🗑 Delete Pin</button>
+  <button id="loadBtn">📥 Load JSON</button>
+  <input id="loadFile" type="file" accept=".json,application/json" style="display:none">
   <button id="saveBtn" class="primary">Save SVG + JSON</button>
 </div>
 
@@ -131,10 +133,10 @@
 (() => {
 'use strict';
 
-const INITIAL = {"anchors": [[231.555, 150.0], [275.493, 165.0], [307.832, 205.0], [320.479, 250.0], [326.0, 276.0], [290.224, 305.0], [287.978, 320.0]], "segments": [{"c1": [230.254, 155.0], "c2": [271.875, 160.0]}, {"c1": [285.141, 178.333], "c2": [296.298, 191.667]}, {"c1": [320.807, 220.0], "c2": [317.757, 235.0]}, {"c1": [322.053, 258.667], "c2": [330.992, 267.333]}, {"c1": [320.432, 285.667], "c2": [306.512, 295.333]}, {"c1": [281.799, 310.0], "c2": [287.362, 315.0]}]};
-let lockedAnchors = new Set([4,6]);
-let freePins = []; // {x,y,color,locked}
-let connections = []; // {a,b,q:null|[x,y]} using global 1-based pin numbers
+const INITIAL = {"anchors":[[242.1864776611328,167.91134643554688],[281.8119201660156,166.51589965820312],[308.8974304199219,202.88783264160156],[322.4401550292969,249.32008361816406],[326,276],[285.96771240234375,304.6751403808594]],"segments":[{"c1":[248.92474365234375,153.0310516357422],"c2":[278.19392016601563,161.51589965820312]},{"c1":[295.0076599121094,178.30784606933594],"c2":[302.49240185546876,185.4524383544922]},{"c1":[317.5811462402344,218.89117431640625],"c2":[319.7181550292969,234.32008361816406]},{"c1":[324.0141550292969,257.98708361816404],"c2":[325.86419677734375,269.0545959472656]},{"c1":[323.45458984375,291.1932373046875],"c2":[300.0752858886719,309.247314453125]}]};
+let lockedAnchors = new Set([0, 1, 2, 3]);
+let freePins = [{"x":25.51721954345703,"y":149.20445251464844,"color":"#35b8ff","locked":false},{"x":88.21694946289062,"y":370.5679931640625,"color":"#35b8ff","locked":false},{"x":104.5167007446289,"y":353.61627197265625,"color":"#35b8ff","locked":false},{"x":23.781898498535156,"y":372.6666564941406,"color":"#35b8ff","locked":false},{"x":259.5231628417969,"y":197.85671997070312,"color":"#35b8ff","locked":false},{"x":276.89703369140625,"y":240.65576171875,"color":"#35b8ff","locked":false},{"x":284.100830078125,"y":278.3697814941406,"color":"#35b8ff","locked":false},{"x":283.6770935058594,"y":303.3711853027344,"color":"#35b8ff","locked":false},{"x":241.72555541992188,"y":167.34649658203125,"color":"#35b8ff","locked":false},{"x":576.115966796875,"y":220.91773986816406,"color":"#35b8ff","locked":false},{"x":599.9752807617188,"y":251.07322692871094,"color":"#35b8ff","locked":false},{"x":660.2861938476562,"y":178.50125122070312,"color":"#35b8ff","locked":false}]; // {x,y,color,locked}
+let connections = [{"a":9,"b":8,"q":[109.23623657226562,372.11553955078125]},{"a":8,"b":10,"q":[64.28736877441406,372.66668701171875]},{"a":7,"b":9,"q":[71.91876220703125,241.78126525878906]},{"a":15,"b":11,"q":null},{"a":11,"b":15,"q":null},{"a":15,"b":13,"q":null},{"a":13,"b":14,"q":null},{"a":15,"b":11,"q":null},{"a":11,"b":12,"q":null},{"a":12,"b":13,"q":null},{"a":13,"b":14,"q":null},{"a":15,"b":11,"q":null},{"a":11,"b":12,"q":null},{"a":12,"b":13,"q":null},{"a":13,"b":14,"q":null}]; // {a,b,q:null|[x,y]} using global 1-based pin numbers
 let addPinMode = false;
 let pinsVisible = true;
 let handlesVisible = true;
@@ -329,7 +331,7 @@ function describeSelection() {
   const lock=(k==='a' && lockedAnchors.has(i))?' • 🔒 locked':(k==='a'?' • 🔓 unlocked':(k==='p'?(freePins[i].locked?' • 🔒 locked':' • 🔓 unlocked'):''));
   selBox.textContent=`${label}${lock}  x ${p[0].toFixed(2)}  y ${p[1].toFixed(2)}`;
   const del=document.getElementById('deleteBtn'), fdel=document.getElementById('floatDelete'), flock=document.getElementById('floatLock');
-  const deletable=selected&&selected.kind==='p'; if(del)del.disabled=!deletable;if(fdel)fdel.disabled=!deletable;if(flock)flock.disabled=!(selected&&['a','p'].includes(selected.kind));
+  const deletable=(selected&&['p','q'].includes(selected.kind))||selectedPins.size>0; if(del)del.disabled=!deletable;if(fdel)fdel.disabled=!deletable;if(flock)flock.disabled=!(selected&&['a','p'].includes(selected.kind));
   if(selected&&selected.kind==='p') document.getElementById('pinColor').value=freePins[selected.i].color||'#35b8ff';
   updateLockButton();
 }
@@ -484,11 +486,11 @@ svg.addEventListener('wheel', e=>{
 },{passive:false});
 
 function autosave() {
-  try { localStorage.setItem('bench-monkey-v5',JSON.stringify({model,locked_anchors:[...lockedAnchors],freePins,connections,pinSizePx,handlesVisible})); } catch(_e) {}
+  try { localStorage.setItem('bench-monkey-v6',JSON.stringify({model,locked_anchors:[...lockedAnchors],freePins,connections,pinSizePx,handlesVisible})); } catch(_e) {}
 }
 function restoreAutosave() {
   try {
-    const x=localStorage.getItem('bench-monkey-v5')||localStorage.getItem('bench-monkey-v4')||localStorage.getItem('monkeybench-ear-v3');
+    const x=localStorage.getItem('bench-monkey-v6');
     if (x) { const saved=JSON.parse(x); model=saved.model||saved; if (Array.isArray(saved.locked_anchors)) lockedAnchors=new Set(saved.locked_anchors); freePins=saved.freePins||[]; connections=saved.connections||[]; pinSizePx=saved.pinSizePx||9; handlesVisible=saved.handlesVisible!==false; }
   } catch(_e) {}
 }
@@ -498,7 +500,30 @@ document.getElementById('floatLock').onclick=toggleSelectedPinLock;
 document.getElementById('addPinBtn').onclick=e=>{addPinMode=!addPinMode;e.currentTarget.classList.toggle('on',addPinMode);};
 function togglePins(){pinsVisible=!pinsVisible;document.getElementById('hidePinsBtn').textContent=pinsVisible?'👁 Hide Pins':'👁 Show Pins';document.getElementById('floatHide').textContent=pinsVisible?'👁 Hide':'👁 Show';render();}
 document.getElementById('hidePinsBtn').onclick=togglePins;document.getElementById('floatHide').onclick=togglePins;
-function deleteSelectedPin(){if(!selected||!['a','p'].includes(selected.kind))return;if(selected.kind==='a'){alert('The original ear-curve pins are structural in v5; free pins can be deleted. Use duplicate/mirror for non-destructive construction.');return;}const global=model.anchors.length+selected.i+1;freePins.splice(selected.i,1);connections=connections.filter(c=>c.a!==global&&c.b!==global).map(c=>({ ...c,a:c.a>global?c.a-1:c.a,b:c.b>global?c.b-1:c.b}));selected=null;autosave();render();}
+function deleteOneFreePinByGlobal(global){
+  const i=global-model.anchors.length-1;
+  if(i<0||i>=freePins.length||freePins[i].locked)return false;
+  freePins.splice(i,1);
+  connections=connections.filter(c=>c.a!==global&&c.b!==global)
+    .map(c=>({...c,a:c.a>global?c.a-1:c.a,b:c.b>global?c.b-1:c.b}));
+  selectedPins=new Set([...selectedPins].filter(n=>n!==global).map(n=>n>global?n-1:n));
+  return true;
+}
+function deleteSelectedPin(){
+  if(selected&&selected.kind==='q'){
+    pushHistory(); connections.splice(selected.i,1); selected=null; autosave(); render(); return;
+  }
+  const globals=selectedPins.size?[...selectedPins].sort((a,b)=>b-a):
+    (selected&&selected.kind==='p'?[model.anchors.length+selected.i+1]:[]);
+  if(!globals.length){
+    if(selected&&selected.kind==='a') alert('Structural curve anchors are protected. Use handles or insert a non-destructive curve pin.');
+    return;
+  }
+  pushHistory(); let changed=false;
+  globals.forEach(n=>{changed=deleteOneFreePinByGlobal(n)||changed;});
+  if(!changed) alert('Locked pins were protected. Unlock a pin before deleting it.');
+  selectedPins.clear(); selected=null; autosave(); render();
+}
 document.getElementById('deleteBtn').onclick=deleteSelectedPin;document.getElementById('floatDelete').onclick=deleteSelectedPin;
 document.getElementById('pinSize').oninput=e=>{pinSizePx=Number(e.target.value);if(selected&&selected.kind==='p')freePins[selected.i].size=pinSizePx;autosave();render();};
 document.getElementById('pinColor').oninput=e=>{if(selected&&selected.kind==='p'){freePins[selected.i].color=e.target.value;autosave();render();}};
@@ -629,8 +654,29 @@ document.getElementById('saveBtn').onclick=()=>{
   setTimeout(()=>download('Bunsen_Ear_UserEdited.json',JSON.stringify(meta,null,2),'application/json'),300);
 };
 
+
+document.getElementById('loadBtn').onclick=()=>document.getElementById('loadFile').click();
+document.getElementById('loadFile').onchange=async e=>{
+  const file=e.target.files&&e.target.files[0]; if(!file)return;
+  try{
+    const saved=JSON.parse(await file.text());
+    const incoming=saved.model||saved;
+    if(!Array.isArray(incoming.anchors)||!Array.isArray(incoming.segments)) throw new Error('Missing anchors/segments');
+    if(incoming.segments.length!==incoming.anchors.length-1) throw new Error('Curve geometry is incomplete');
+    pushHistory();
+    model={anchors:structuredClone(incoming.anchors),segments:structuredClone(incoming.segments)};
+    lockedAnchors=new Set(saved.locked_anchors||[]);
+    freePins=structuredClone(saved.free_pins||saved.freePins||[]);
+    connections=structuredClone(saved.connections||[]);
+    selected=null; selectedPins.clear(); connectSequence=[];
+    autosave(); render(); fitView();
+    alert('JSON loaded. Ear geometry and construction data restored.');
+  }catch(err){ alert('Could not load this JSON: '+err.message); }
+  e.target.value='';
+};
+
 window.addEventListener('resize',updateHandleSizes);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){addPinMode=false;connectClickMode=false;connectSequence=[];document.getElementById('addPinBtn').classList.remove('on');document.getElementById('connectModeBtn').classList.remove('on');document.getElementById('connectModeBtn').textContent='🧵 Connect by Click';}});
+document.addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&!['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();deleteSelectedPin();return;}if(e.key==='Escape'){addPinMode=false;connectClickMode=false;connectSequence=[];document.getElementById('addPinBtn').classList.remove('on');document.getElementById('connectModeBtn').classList.remove('on');document.getElementById('connectModeBtn').textContent='🧵 Connect by Click';}});
 restoreAutosave();
 document.getElementById('pinSize').value=pinSizePx;
 render();
