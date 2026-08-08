@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#111111">
-<title>Bench Monkey — Shape Editor v6.2</title>
+<title>Bench Monkey — Shape Editor v6.3</title>
 <style>
   :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   * { box-sizing: border-box; }
@@ -82,7 +82,7 @@ body.bigMatDesktop{
 body.bigMatDesktop header, body.bigMatDesktop .topbar{
   grid-column:1 / -1;
 }
-body.bigMatDesktop #toolPanel{
+body.bigMatDesktop #topbar{
   grid-column:1;
   grid-row:2;
   align-content:start;
@@ -92,7 +92,7 @@ body.bigMatDesktop #toolPanel{
   padding:10px;
   border-right:1px solid #444;
 }
-body.bigMatDesktop #toolPanel button{
+body.bigMatDesktop #topbar button{
   width:100%;
   margin:4px 0;
 }
@@ -115,9 +115,9 @@ body.bigMatDesktop #editor{
 body.bigMatDesktop.toolsCollapsed{
   --bm-sidebar:54px;
 }
-body.bigMatDesktop.toolsCollapsed #toolPanel button:not(#collapseToolsBtn),
-body.bigMatDesktop.toolsCollapsed #toolPanel input,
-body.bigMatDesktop.toolsCollapsed #toolPanel label{
+body.bigMatDesktop.toolsCollapsed #topbar button:not(#collapseToolsBtn),
+body.bigMatDesktop.toolsCollapsed #topbar input,
+body.bigMatDesktop.toolsCollapsed #topbar label{
   display:none !important;
 }
 body.bigMatDesktop.toolsCollapsed #collapseToolsBtn{
@@ -131,12 +131,12 @@ body.bigMatDesktop.toolsCollapsed #collapseToolsBtn{
     display:block;
     overflow:auto;
   }
-  body.bigMatDesktop #toolPanel{
+  body.bigMatDesktop #topbar{
     max-height:none;
     overflow:visible;
     border-right:0;
   }
-  body.bigMatDesktop #toolPanel button{
+  body.bigMatDesktop #topbar button{
     width:auto;
   }
   body.bigMatDesktop #editorWrap{
@@ -145,11 +145,100 @@ body.bigMatDesktop.toolsCollapsed #collapseToolsBtn{
   }
 }
 
+
+/* === v6.3 WORKBENCH LAYOUT: FINAL OVERRIDES === */
+@media (min-width: 821px){
+  html, body { width:100%; height:100%; margin:0; overflow:hidden; }
+  body{
+    display:grid !important;
+    grid-template-columns:240px minmax(0,1fr) !important;
+    grid-template-rows:100vh !important;
+    background:#050505;
+  }
+
+  /* The existing toolbar becomes the left engineering rail. */
+  #topbar{
+    position:relative !important;
+    grid-column:1 !important;
+    grid-row:1 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    flex-wrap:nowrap !important;
+    gap:6px !important;
+    width:240px !important;
+    height:100vh !important;
+    box-sizing:border-box !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    padding:10px !important;
+    margin:0 !important;
+    border-right:1px solid #444 !important;
+    background:#151515 !important;
+    z-index:20 !important;
+  }
+  #topbar button{
+    flex:0 0 auto !important;
+    width:100% !important;
+    min-height:34px !important;
+    margin:0 !important;
+    white-space:normal !important;
+  }
+
+  /* Everything except the toolbar is placed on the drafting mat. */
+  #editorWrap, #bmCompareShell{
+    position:relative !important;
+    grid-column:2 !important;
+    grid-row:1 !important;
+    width:100% !important;
+    height:100vh !important;
+    max-width:none !important;
+    max-height:none !important;
+    margin:0 !important;
+    padding:0 !important;
+    overflow:hidden !important;
+    align-self:stretch !important;
+    justify-self:stretch !important;
+  }
+  #editor{
+    display:block !important;
+    width:100% !important;
+    height:100% !important;
+    max-width:none !important;
+    max-height:none !important;
+  }
+
+  body.toolsCollapsed{
+    grid-template-columns:52px minmax(0,1fr) !important;
+  }
+  body.toolsCollapsed #topbar{
+    width:52px !important;
+    padding:6px !important;
+  }
+  body.toolsCollapsed #topbar > *:not(#collapseToolsBtn){
+    display:none !important;
+  }
+  body.toolsCollapsed #collapseToolsBtn{
+    display:block !important;
+    width:40px !important;
+  }
+
+  /* Header/status text becomes a compact mat badge rather than consuming acreage. */
+  header, .topbar, #status, .status{
+    pointer-events:none;
+  }
+}
+/* Mobile remains stacked/touch-friendly. */
+@media (max-width:820px){
+  #topbar{display:flex;flex-wrap:wrap;gap:6px;}
+  #collapseToolsBtn{display:none;}
+}
+
 </style>
 </head>
 <body>
-<div id="topbar">
-  <div class="brand">🐵 Bench Monkey — Shape Editor <span style="opacity:.55">v5</span></div>
+<div id="topbar" class="toolbar">
+  <button id="collapseToolsBtn" title="Collapse/expand controls">☰ Mat</button>
+  <div class="brand">🐵 Bench Monkey — Shape Editor <span style="opacity:.55">v6.3</span></div>
   <span class="badge">📌 Placement locked • pins individually lockable</span>
   <button id="fitBtn">3-foot view</button>
   <button id="earBtn">Zoom ear</button>
@@ -757,20 +846,7 @@ document.getElementById('loadFile').onchange=async e=>{
 };
 
 
-function selectedStructuralAnchorIndex(){
-  if(!selected) return null;
-  if(selected.kind==='a') return selected.i;
-  // Existing editor handle selections identify a segment and side.
-  // Map the selected handle back to the structural anchor it controls.
-  if(selected.kind==='h'){
-    if(Number.isInteger(selected.anchorI)) return selected.anchorI;
-    if(Number.isInteger(selected.i)){
-      if(selected.side==='in'||selected.which==='in') return selected.i+1;
-      return selected.i;
-    }
-  }
-  return null;
-}
+function selectedStructuralAnchorIndex(){ return v63StructuralAnchorFromSelection(); }
 function updateNodeToolState(){
   const i=selectedStructuralAnchorIndex();
   const handleActive=!!(selected&&selected.kind==='h');
@@ -853,6 +929,36 @@ document.getElementById('sideBySideBtn').onclick=()=>{
   try{render();updateHandleSizes();}catch(e){}
 };
 
+
+function v63StructuralAnchorFromSelection(){
+  if(!selected) return null;
+  if(selected.kind==='a' && Number.isInteger(selected.i)) return selected.i;
+  if(selected.kind==='h'){
+    if(Number.isInteger(selected.anchorI)) return selected.anchorI;
+    if(Number.isInteger(selected.anchorIndex)) return selected.anchorIndex;
+    if(Number.isInteger(selected.i)){
+      const txt=(document.getElementById('status')?.textContent||'').toLowerCase();
+      if(txt.includes('incoming')) return Math.min(model.anchors.length-1,selected.i+1);
+      return Math.max(0,Math.min(model.anchors.length-1,selected.i));
+    }
+  }
+  return null;
+}
+
+
+function v63EnsureEngineeringVisibility(){
+  try{
+    // Normalize any inherited hide state from prior builds.
+    pinsVisible=true;
+    handlesVisible=true;
+  }catch(e){}
+  const hp=document.getElementById('hidePinsBtn');
+  const hh=document.getElementById('handlesBtn');
+  if(hp) hp.textContent='👁 Hide Pins';
+  if(hh) hh.textContent='〰 Hide Handles';
+  try{render();updateHandleSizes();}catch(e){}
+}
+
 window.addEventListener('resize',updateHandleSizes);
 document.addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&!['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();deleteSelectedPin();return;}if(e.key==='Escape'){addPinMode=false;connectClickMode=false;connectSequence=[];document.getElementById('addPinBtn').classList.remove('on');document.getElementById('connectModeBtn').classList.remove('on');document.getElementById('connectModeBtn').textContent='🧵 Connect by Click';}});
 restoreAutosave();
@@ -861,6 +967,8 @@ render();
 fitView();
 updateButtons();
 })();
+
+setTimeout(v63EnsureEngineeringVisibility,0);
 </script>
 </body>
 </html>
