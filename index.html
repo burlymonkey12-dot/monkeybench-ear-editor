@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#111111">
-<title>Bench Monkey — Shape Editor v6.1</title>
+<title>Bench Monkey — Shape Editor v6.2</title>
 <style>
   :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   * { box-sizing: border-box; }
@@ -69,6 +69,82 @@
     #nudges { grid-column:1; }
     .slider { grid-column:2 / 4; }
   }
+
+/* === v6.2 BIG MAT / WORKBENCH-FIRST LAYOUT === */
+:root{--bm-sidebar:270px}
+body.bigMatDesktop{
+  display:grid;
+  grid-template-columns:var(--bm-sidebar) minmax(0,1fr);
+  grid-template-rows:auto 1fr;
+  min-height:100vh;
+  overflow:hidden;
+}
+body.bigMatDesktop header, body.bigMatDesktop .topbar{
+  grid-column:1 / -1;
+}
+body.bigMatDesktop #toolPanel{
+  grid-column:1;
+  grid-row:2;
+  align-content:start;
+  overflow-y:auto;
+  overflow-x:hidden;
+  max-height:calc(100vh - 72px);
+  padding:10px;
+  border-right:1px solid #444;
+}
+body.bigMatDesktop #toolPanel button{
+  width:100%;
+  margin:4px 0;
+}
+body.bigMatDesktop #editorWrap{
+  grid-column:2;
+  grid-row:2;
+  width:100% !important;
+  height:calc(100vh - 72px) !important;
+  max-width:none !important;
+  max-height:none !important;
+  margin:0 !important;
+  overflow:hidden;
+}
+body.bigMatDesktop #editor{
+  width:100% !important;
+  height:100% !important;
+  max-width:none !important;
+  max-height:none !important;
+}
+body.bigMatDesktop.toolsCollapsed{
+  --bm-sidebar:54px;
+}
+body.bigMatDesktop.toolsCollapsed #toolPanel button:not(#collapseToolsBtn),
+body.bigMatDesktop.toolsCollapsed #toolPanel input,
+body.bigMatDesktop.toolsCollapsed #toolPanel label{
+  display:none !important;
+}
+body.bigMatDesktop.toolsCollapsed #collapseToolsBtn{
+  display:block !important;
+  min-width:40px;
+  padding:10px 4px;
+}
+/* Phone/tablet: retain touch-friendly stacked controls. */
+@media (max-width: 820px){
+  body.bigMatDesktop{
+    display:block;
+    overflow:auto;
+  }
+  body.bigMatDesktop #toolPanel{
+    max-height:none;
+    overflow:visible;
+    border-right:0;
+  }
+  body.bigMatDesktop #toolPanel button{
+    width:auto;
+  }
+  body.bigMatDesktop #editorWrap{
+    width:100% !important;
+    height:auto !important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -78,6 +154,8 @@
   <button id="fitBtn">3-foot view</button>
   <button id="earBtn">Zoom ear</button>
   <button id="refBtn" class="on">Reference</button>
+  <button id="overlayViewBtn">Overlay</button>
+  <button id="sideBySideBtn">Side-by-side</button>
   <button id="ghostBtn">Original curve</button>
   <button id="undoBtn">↶ Undo</button>
   <button id="redoBtn">↷ Redo</button>
@@ -680,11 +758,23 @@ document.getElementById('loadFile').onchange=async e=>{
 
 
 function selectedStructuralAnchorIndex(){
-  return (selected&&selected.kind==='a')?selected.i:null;
+  if(!selected) return null;
+  if(selected.kind==='a') return selected.i;
+  // Existing editor handle selections identify a segment and side.
+  // Map the selected handle back to the structural anchor it controls.
+  if(selected.kind==='h'){
+    if(Number.isInteger(selected.anchorI)) return selected.anchorI;
+    if(Number.isInteger(selected.i)){
+      if(selected.side==='in'||selected.which==='in') return selected.i+1;
+      return selected.i;
+    }
+  }
+  return null;
 }
 function updateNodeToolState(){
   const i=selectedStructuralAnchorIndex();
-  const ok=i!==null&&i>0&&i<model.anchors.length-1;
+  const handleActive=!!(selected&&selected.kind==='h');
+  const ok=(i!==null&&i>0&&i<model.anchors.length-1)||handleActive;
   ['cornerNodeBtn','smoothNodeBtn','symmetricNodeBtn'].forEach(id=>{
     const b=document.getElementById(id); if(b)b.disabled=!ok;
   });
@@ -715,6 +805,53 @@ function setBezierNodeMode(mode){
 document.getElementById('cornerNodeBtn').onclick=()=>setBezierNodeMode('corner');
 document.getElementById('smoothNodeBtn').onclick=()=>setBezierNodeMode('smooth');
 document.getElementById('symmetricNodeBtn').onclick=()=>setBezierNodeMode('symmetric');
+
+
+function applyBigMatLayout(){
+  const desktop=window.matchMedia('(min-width: 821px)').matches;
+  document.body.classList.toggle('bigMatDesktop',desktop);
+  if(!desktop) document.body.classList.remove('toolsCollapsed');
+}
+document.getElementById('collapseToolsBtn').onclick=()=>{
+  document.body.classList.toggle('toolsCollapsed');
+  setTimeout(()=>{try{updateHandleSizes();render();}catch(e){}},50);
+};
+window.addEventListener('resize',applyBigMatLayout);
+applyBigMatLayout();
+
+
+let sideBySideOn=false;
+function exitSideBySide(){
+  const shell=document.getElementById('bmCompareShell');
+  if(shell){ shell.replaceWith(document.getElementById('editorWrap')); }
+  sideBySideOn=false;
+  try{render();updateHandleSizes();}catch(e){}
+}
+document.getElementById('overlayViewBtn').onclick=()=>{
+  if(sideBySideOn) exitSideBySide();
+  const r=document.getElementById('reference');
+  if(r) r.style.opacity='0.55';
+};
+document.getElementById('sideBySideBtn').onclick=()=>{
+  if(sideBySideOn){exitSideBySide();return;}
+  const wrap=document.getElementById('editorWrap');
+  const shell=document.createElement('div'); shell.id='bmCompareShell';
+  shell.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;height:100%;overflow:hidden;';
+  const left=document.createElement('div'); left.style.cssText='position:relative;overflow:hidden;border-right:1px solid #555;';
+  const right=document.createElement('div'); right.style.cssText='position:relative;overflow:hidden;';
+  const clone=wrap.cloneNode(true); clone.id='bmReferenceWrap';
+  clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
+  clone.style.cssText='width:100%;height:100%;pointer-events:none;';
+  const cloneSvg=clone.querySelector('svg'); if(cloneSvg){cloneSvg.style.width='100%';cloneSvg.style.height='100%';}
+  const badge=document.createElement('div'); badge.textContent='⭐ North Star / Reference';
+  badge.style.cssText='position:absolute;z-index:5;top:8px;left:8px;background:#24112f;color:white;padding:6px 9px;border-radius:8px;';
+  left.append(clone,badge);
+  const editBadge=document.createElement('div'); editBadge.textContent='🔧 Edited Ear';
+  editBadge.style.cssText='position:absolute;z-index:5;top:8px;left:8px;background:#10243a;color:white;padding:6px 9px;border-radius:8px;pointer-events:none;';
+  wrap.replaceWith(shell); right.append(wrap,editBadge); shell.append(left,right);
+  sideBySideOn=true;
+  try{render();updateHandleSizes();}catch(e){}
+};
 
 window.addEventListener('resize',updateHandleSizes);
 document.addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&!['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();deleteSelectedPin();return;}if(e.key==='Escape'){addPinMode=false;connectClickMode=false;connectSequence=[];document.getElementById('addPinBtn').classList.remove('on');document.getElementById('connectModeBtn').classList.remove('on');document.getElementById('connectModeBtn').textContent='🧵 Connect by Click';}});
